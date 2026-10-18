@@ -2,8 +2,8 @@ name: Run Telegram Bot Every 15 Mins
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # هر ۱۵ دقیقه یک‌بار اجرا می‌شود
-  workflow_dispatch:        # قابلیت اجرای دستی هم دارد
+    - cron: '*/15 * * * *'  # هر ۱۵ دقیقه یک‌بار
+  workflow_dispatch:        # قابلیت اجرای دستی
 
 jobs:
   run-bot:
@@ -29,7 +29,7 @@ jobs:
         API_HASH: ${{ secrets.API_HASH }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         SESSION_STRING: ${{ secrets.SESSION_STRING }}
-        SOURCE_CHANNEL: ${{ secrets.SOURCE_CHANNEL }}
-        TARGET_CHANNEL: ${{ secrets.TARGET_CHANNEL }}
+        SOURCE_CHANNEL: "@chandsanieh_news"
+        TARGET_CHANNEL: "@finsoph_news"
       run: |
         python main.py
