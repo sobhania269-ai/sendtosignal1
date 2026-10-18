@@ -16,7 +16,7 @@ SYSTEM_INSTRUCTION = """
    - در صورت نیاز آیدی کانال مقصد (@finsoph_news) را جایگزین یا اضافه کن.
 ۵. عدم تغییر اصل خبر: تحت هیچ شرایطی متن اصلی خبر، لحن، یا واقعیت‌های آن را تغییر نده و بازنویسی نکن. فقط حذفیات گفته‌شده را انجام بده.
 ۶. عدم تولید متن اضافه: به هیچ وجه تحلیل، نظر شخص، توضیح، مقدمه یا موخره خودت را اضافه نکن.
-۷. اگر متن کلاً پس از حذف عبارت‌ها خالی شد یا مناسب نبود، فقط پاسخ بده: SKIP
+۷. اگر متن کلاً پس از حذف عبارت‌ها خالی شد یا نامناسب بود، فقط پاسخ بده: SKIP
 """
 
 def process_text_with_gemini(text: str) -> str:
@@ -25,7 +25,7 @@ def process_text_with_gemini(text: str) -> str:
 
     try:
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.1-flash-lite',  # <-- تغییر مدل به نسخه معتبر و پشتیبانی‌شده
             contents=f"متن خبر جهت بررسی و ویرایش:\n\n{text}",
             config={'system_instruction': SYSTEM_INSTRUCTION}
         )
