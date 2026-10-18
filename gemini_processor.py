@@ -1,10 +1,8 @@
 import os
 from google import genai
 
-# مقداردهی اولیه کلاینت جمینای
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
-# پرامپت برای بررسی و اعمال قوانین روی متن
 SYSTEM_INSTRUCTION = """
 تو یک دستیار ویرایش خبر تلگرام هستی. وظیفه داری متن دریافتی را طبق قوانین زیر بررسی و اصلاح کنی:
 
@@ -22,9 +20,6 @@ SYSTEM_INSTRUCTION = """
 """
 
 def process_text_with_gemini(text: str) -> str:
-    """
-    متن خبر را به جمینای می‌فرستد و پاسخ پردازش‌شده یا SKIP را برمی‌گرداند.
-    """
     if not text or not text.strip():
         return "SKIP"
 
@@ -34,9 +29,7 @@ def process_text_with_gemini(text: str) -> str:
             contents=f"متن خبر جهت بررسی و ویرایش:\n\n{text}",
             config={'system_instruction': SYSTEM_INSTRUCTION}
         )
-        
-        result = response.text.strip()
-        return result
+        return response.text.strip()
     except Exception as e:
         print(f"خطا در ارتباط با جمینای: {e}")
         return "SKIP"
