@@ -9,37 +9,63 @@ SESSION_STRING = os.environ.get("SESSION_STRING")
 SOURCE_CHANNEL = os.environ.get("SOURCE_CHANNEL", "@chandsanieh_news")
 TARGET_CHANNEL = os.environ.get("TARGET_CHANNEL", "@finsoph_news")
 
+LAST_MSG_FILE = "last_msg_id.txt"
+
+def get_last_processed_id() -> int:
+    if os.path.exists(LAST_MSG_FILE):
+        try:
+            with open(LAST_MSG_FILE, "r") as f:
+                return int(f.read().strip())
+        except:
+            return 0
+    return 0
+
+def save_last_processed_id(msg_id: int):
+    with open(LAST_MSG_FILE, "w") as f:
+        f.write(str(msg_id))
+
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
-async def check_latest_message():
+async def fetch_new_messages():
     await client.start()
-    print("اتصال به تلگرام برقرار شد...")
+    print("اتصال به تلگرام برقرار شد. در حال بررسی پیام‌های جدید...")
 
-    # گرفتن آخرین پیام از کانال مبدأ
-    async for message in client.iter_messages(SOURCE_CHANNEL, limit=1):
-        if not message:
-            print("پیامی یافت نشد.")
-            return
+    last_id = get_last_processed_id()
+    new_highest_id = last_id
+    messages_to_process = []
+    
+    # خواندن پیام‌های جدیدتر از آخرین آیدی ثبت‌شده
+    async for message in client.iter_messages(SOURCE_CHANNEL, min_id=last_id, limit=20):
+        if message.id > new_highest_id:
+            new_highest_id = message.id
+        messages_to_process.append(message)
 
+    if not messages_to_process:
+        print("پیام جدیدی یافت نشد.")
+        return
+
+    messages_to_process.reverse()
+
+    for message in messages_to_process:
         # ۱. فیلتر استیکر
         if message.sticker:
-            print("آخرین پست استیکر است -> رد شد.")
-            return
+            print(f"پیام {message.id} استیکر است -> رد شد.")
+            continue
 
-        # ۲. فیلتر پست‌های بدون متن
-        text = message.text or message.caption
+        # ۲. فیلتر پست‌های بدون متن (در تلگرام message.text شامل متن و کپشن رسانه می‌شود)
+        text = message.text
         if not text:
-            print("پست بدون متن است -> رد شد.")
-            return
+            print(f"پیام {message.id} بدون متن یا کپشن است -> رد شد.")
+            continue
 
-        print(f"بررسی آخرین پیام:\n{text[:50]}...")
+        print(f"در حال پردازش پیام ID: {message.id}")
 
         # ۳. پردازش با جمینای
         processed_text = process_text_with_gemini(text)
 
         if processed_text == "SKIP" or not processed_text.strip():
-            print("پیام توسط جمینای فیلتر یا رد شد (SKIP).")
-            return
+            print(f"پیام {message.id} توسط جمینای رد شد (SKIP).")
+            continue
 
         # ۴. ارسال به کانال مقصد
         try:
@@ -54,10 +80,13 @@ async def check_latest_message():
                     TARGET_CHANNEL,
                     processed_text
                 )
-            print("✅ پیام با موفقیت به کانال مقصد ارسال شد!")
+            print(f"✅ پیام {message.id} با موفقیت به کانال مقصد ارسال شد!")
         except Exception as e:
-            print(f"❌ خطا در ارسال پیام: {e}")
+            print(f"❌ خطا در ارسال پیام {message.id}: {e}")
+
+    if new_highest_id > last_id:
+        save_last_processed_id(new_highest_id)
 
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(check_latest_message())
+    asyncio.run(fetch_new_messages())
