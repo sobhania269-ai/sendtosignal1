@@ -17,11 +17,19 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
       - name: Run script
         env:
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SOURCE_CHANNEL: ${{ secrets.SOURCE_CHANNEL }}
+          TARGET_CHANNEL: ${{ secrets.TARGET_CHANNEL }}
+          PREMIUM_EMOJI_ID: ${{ secrets.PREMIUM_EMOJI_ID }}
         run: |
-          pip install -r requirements.txt
           python main.py
