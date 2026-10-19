@@ -16,55 +16,71 @@ SESSION_STRING = os.environ.get("SESSION_STRING")
 SOURCE_CHANNEL = os.environ.get("SOURCE_CHANNEL") or "@chandsanieh_news"
 TARGET_CHANNELS = ["@ahmadsobhani", "@finsoph_news"]
 
-# شناسه‌های ایموجی‌های پریمیوم مختص کانال ahmadsobhani
-EMOJI_GREEN = "5958629062858514430"  # ایموجی سبز برای ابتدای خطوط
-EMOJI_ID = "5836782704686798781"     # ایموجی کنار آیدی
-EMOJI_LINK = "5271604874419647061"   # ایموجی کنار isignal.ir
+# شناسه‌های ایموجی‌های پریمیوم
+# کانال احمد سبحانی
+EMOJI_AHMAD_BULLET = "5958629062858514430"  # ایموجی ابتدای خطوط برای کانال شخصی
+EMOJI_ID = "5836782704686798781"            # ایموجی آیدی (مشترک)
+EMOJI_LINK = "5271604874419647061"          # ایموجی پیوند (مشترک)
+
+# کانال فینسوف نیوز
+EMOJI_FINSOPH_BULLET = "5958661279408200638" # ایموجی ابتدای خطوط برای فینسوف
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 def format_news_text(raw_text: str) -> str:
-    """پاک‌سازی متن، حذف ایموجی‌های نامطلوب، و بولد کردن قطعی جمله اول"""
-    # حذف ایموجی‌های لوزی آبی و کاراکترهای مشابه
+    """پاک‌سازی متن، حذف ایموجی‌های نامطلوب، و بولد کردن قطعی خط اول"""
     clean_text = re.sub(r'[🔹🔷]', '', raw_text).strip()
     
-    # تفکیک خطوط غیرخالی
     lines = [line.strip() for line in clean_text.split('\n') if line.strip()]
     if not lines:
         return ""
 
     # اطمینان از بولد بودن سطر اول (تیتر)
     first_line = lines[0]
-    # اگر قبلا با ** یا <b> احاطه شده بود، ابتدا پاک‌سازی و سپس تگ یکدست <b> اعمال می‌شود
     first_line = re.sub(r'</?b>', '', first_line)
     first_line = re.sub(r'\*\*(.*?)\*\*', r'\1', first_line).strip()
     lines[0] = f"<b>{first_line}</b>"
 
-    # تبدیل ستاره‌های بقیه خطوط به تگ بولد استاندارد
+    # تبدیل ستاره‌های بقیه خطوط به بولد استاندارد HTML
     for i in range(1, len(lines)):
         lines[i] = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', lines[i])
 
     return "\n\n".join(lines)
 
 def prepare_caption_for_target(base_text: str, target: str) -> str:
-    """شخصی‌سازی دقیق متن برای هر کانال به صورت کاملاً مجزا"""
+    """شخصی‌سازی متن، ایموجی خطوط و فوتر برای هر کانال به صورت جداگانه"""
+    paragraphs = base_text.split('\n\n')
+
     if target == "@ahmadsobhani":
-        # اضافه کردن ایموجی سبز در ابتدای تمام پاراگراف‌ها
-        paragraphs = base_text.split('\n\n')
+        # ایموجی سبز در ابتدای تمام پاراگراف‌ها
         formatted_paragraphs = [
-            f'<tg-emoji emoji-id="{EMOJI_GREEN}">🟢</tg-emoji> {p}' for p in paragraphs
+            f'<tg-emoji emoji-id="{EMOJI_AHMAD_BULLET}">🟢</tg-emoji> {p}' for p in paragraphs
         ]
         body = '\n\n'.join(formatted_paragraphs)
         
-        # فوتر اختصاصی: فقط متن isignal.ir بدون هایپرلینک
+        # فوتر اختصاصی کانال احمد سبحانی
         footer = (
             f'<tg-emoji emoji-id="{EMOJI_ID}">🆔</tg-emoji> {target}\n'
             f'<tg-emoji emoji-id="{EMOJI_LINK}">🔗</tg-emoji> isignal.ir'
         )
         return f"{body}\n\n{footer}"
-    
+
+    elif target == "@finsoph_news":
+        # ایموجی اختصاصی فینسوف در ابتدای تمام پاراگراف‌ها
+        formatted_paragraphs = [
+            f'<tg-emoji emoji-id="{EMOJI_FINSOPH_BULLET}">🔸</tg-emoji> {p}' for p in paragraphs
+        ]
+        body = '\n\n'.join(formatted_paragraphs)
+
+        # فوتر اختصاصی فینسوف شامل دو کانال و وب‌سایت رسمی
+        footer = (
+            f'<tg-emoji emoji-id="{EMOJI_ID}">🆔</tg-emoji> @finsoph_news\n'
+            f'<tg-emoji emoji-id="{EMOJI_ID}">🆔</tg-emoji> @fin_soph\n'
+            f'<tg-emoji emoji-id="{EMOJI_LINK}">🔗</tg-emoji> finsoph.ir'
+        )
+        return f"{body}\n\n{footer}"
+
     else:
-        # کانال دوم (finsoph_news): ساختار تمیز بدون ایموجی‌های اختصاصی کانال اول
         return f"{base_text}\n\n{target}"
 
 async def fetch_and_process_messages():
@@ -117,12 +133,12 @@ async def fetch_and_process_messages():
             print(f"پست {first_id} رد شد (SKIP).")
             continue
 
-        # اعمال قالب‌بندی و بولد کردن جمله اول
+        # اعمال قالب‌بندی و بولد کردن خط اول
         base_formatted_text = format_news_text(processed_text)
         if not base_formatted_text:
             continue
 
-        # ارسال به هر کانال با محتوای کاملاً مجزا
+        # ارسال به هر دو کانال به صورت کاملاً مجزا
         for target in TARGET_CHANNELS:
             caption = prepare_caption_for_target(base_formatted_text, target)
 
