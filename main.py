@@ -17,20 +17,32 @@ SESSION_STRING = os.environ.get("SESSION_STRING")
 SOURCE_CHANNEL = os.environ.get("SOURCE_CHANNEL") or "@chandsanieh_news"
 TARGET_CHANNELS = ["@ahmadsobhani", "@finsoph_news"]
 
-# ایموجی پریمیوم (اختیاری)
-PREMIUM_EMOJI_ID = os.environ.get("PREMIUM_EMOJI_ID") or ""
+# آیدی‌های اختصاصی ایموجی پریمیوم دریافتی
+EMOJI_HEADER = "5958629062858514430"  # ایموجی ابتدای هر پیام
+EMOJI_ID = "5836782704686798781"      # ایموجی کنار آیدی کانال
+EMOJI_LINK = "5271604874419647061"    # ایموجی کنار لینک منبع
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 def markdown_to_html_bold(text: str) -> str:
-    """تبدیل خودکار دو ستاره مارک‌داون به تگ استاندارد HTML جهت بولد شدن قطعی"""
+    """تبدیل دو ستاره مارک‌داون به تگ استاندارد HTML جهت بولد شدن قطعی"""
     return re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+
+def build_channel_footer(target: str, source_msg_link: str) -> str:
+    """ساخت فوتر اختصاصی شامل ایموجی‌های پریمیوم، آیدی و لینک منبع"""
+    if target == "@ahmadsobhani":
+        footer = f'<tg-emoji emoji-id="{EMOJI_ID}">🆔</tg-emoji> {target}'
+        if source_msg_link:
+            footer += f'\n<tg-emoji emoji-id="{EMOJI_LINK}">🔗</tg-emoji> <a href="{source_msg_link}">منبع خبر</a>'
+        return footer
+    else:
+        # برای بقیه کانال‌ها مثل finsoph_news
+        return f"{target}"
 
 async def fetch_and_process_messages():
     await client.start()
     print(f"اتصال تلگرام برقرار شد.\nمبدأ: {SOURCE_CHANNEL}\nمقاصد: {TARGET_CHANNELS}")
 
-    # بررسی پیام‌های حدود ۱۸ دقیقه اخیر
     time_limit = datetime.now(timezone.utc) - timedelta(minutes=18)
     grouped_posts = {}
 
@@ -39,7 +51,6 @@ async def fetch_and_process_messages():
         if message.date < time_limit:
             break
         
-        # نادیده گرفتن استیکرها یا پیام‌های سیستمی
         if message.sticker or message.action:
             continue
 
@@ -55,11 +66,12 @@ async def fetch_and_process_messages():
         await client.disconnect()
         return
 
-    # مرتب‌سازی گروه‌ها از قدیمی به جدید
     sorted_groups = sorted(grouped_posts.values(), key=lambda group: min(m.id for m in group))
 
+    # به دست آوردن نام کاربری کانال مبدا برای ساخت لینک پیام
+    source_username = SOURCE_CHANNEL.replace("@", "")
+
     for group in sorted_groups:
-        # استخراج کپشن متنی از میان پیام‌های گروه
         text_content = ""
         for msg in group:
             caption = msg.text or msg.message
@@ -67,7 +79,6 @@ async def fetch_and_process_messages():
                 text_content = caption.strip()
                 break
 
-        # فیلتر اولیه: تنها در صورتی که متن وجود داشته باشد به جمینای می‌رود
         if not text_content:
             continue
 
@@ -75,35 +86,37 @@ async def fetch_and_process_messages():
         print(f"ارسال متن پست شناسه {first_id} به جمینای...")
 
         processed_text = process_text_with_gemini(text_content)
-        
-        # تاخیر برای رعایت محدودیت درخواست در دقیقه جمینای
         await asyncio.sleep(4)
 
         if processed_text == "SKIP" or not processed_text.strip():
-            print(f"پست {first_id} مرتبط تشخیص داده نشد یا حذف شد (SKIP).")
+            print(f"پست {first_id} رد شد (SKIP).")
             continue
 
-        # اصلاح ساختار بولد
+        # تبدیل ** به <b>
         processed_text = markdown_to_html_bold(processed_text)
 
-        # ارسال جداگانه به هر دو کانال
-        for target in TARGET_CHANNELS:
-            caption_with_id = f"{processed_text}\n\n{target}"
+        # ساخت لینک پیام اصلی در مبدأ
+        source_msg_link = f"https://t.me/{source_username}/{first_id}"
 
-            if PREMIUM_EMOJI_ID:
-                caption_with_id = f'<tg-emoji emoji-id="{PREMIUM_EMOJI_ID}">🔹</tg-emoji> {caption_with_id}'
+        # ارسال به کانال‌های مقصد
+        for target in TARGET_CHANNELS:
+            footer = build_channel_footer(target, source_msg_link)
+            
+            # افزودن ایموجی پریمیوم به اول پیام برای کانال ahmadsobhani
+            if target == "@ahmadsobhani":
+                full_caption = f'<tg-emoji emoji-id="{EMOJI_HEADER}">🔹</tg-emoji> {processed_text}\n\n{footer}'
+            else:
+                full_caption = f"{processed_text}\n\n{footer}"
 
             try:
                 media_messages = [m for m in group if m.media]
 
                 if len(media_messages) > 1:
-                    # ارسال چندرسانه‌ای به صورت اسلایدی/آلبوم ورق‌خور
                     peer = await client.get_input_entity(target)
                     multi_media = []
 
                     for idx, msg in enumerate(media_messages):
-                        # اختصاص کپشن تنها به اسلاید اول
-                        cap = caption_with_id if idx == 0 else ""
+                        cap = full_caption if idx == 0 else ""
                         input_media = await client.get_input_media(msg.media)
 
                         multi_media.append(
@@ -122,19 +135,17 @@ async def fetch_and_process_messages():
                     print(f"✅ آلبوم اسلایدی پست {first_id} به {target} ارسال شد.")
 
                 elif len(media_messages) == 1:
-                    # تک‌مدیا با کپشن
                     await client.send_message(
                         target,
-                        caption_with_id,
+                        full_caption,
                         file=media_messages[0].media,
                         parse_mode="html"
                     )
                     print(f"✅ پست تک‌مدیا {first_id} به {target} ارسال شد.")
                 else:
-                    # متن خالص
                     await client.send_message(
                         target,
-                        caption_with_id,
+                        full_caption,
                         parse_mode="html"
                     )
                     print(f"✅ پست متنی {first_id} به {target} ارسال شد.")
