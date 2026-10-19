@@ -13,30 +13,32 @@ API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
-# کانال‌های مبدا و مقصد
 SOURCE_CHANNEL = os.environ.get("SOURCE_CHANNEL") or "@chandsanieh_news"
 TARGET_CHANNELS = ["@ahmadsobhani", "@finsoph_news"]
 
-# آیدی‌های اختصاصی ایموجی پریمیوم دریافتی
-EMOJI_HEADER = "5958629062858514430"  # ایموجی ابتدای هر پیام
-EMOJI_ID = "5836782704686798781"      # ایموجی کنار آیدی کانال
-EMOJI_LINK = "5271604874419647061"    # ایموجی کنار لینک منبع
+# شناسه‌های ایموجی‌های پریمیوم
+EMOJI_HEADER = "5958629062858514430"  # ایموجی سبز پریمیوم
+EMOJI_ID = "5836782704686798781"      # ایموجی آیدی
+EMOJI_LINK = "5271604874419647061"    # ایموجی پیوند
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
-def markdown_to_html_bold(text: str) -> str:
-    """تبدیل دو ستاره مارک‌داون به تگ استاندارد HTML جهت بولد شدن قطعی"""
-    return re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+def clean_and_format_text(text: str) -> str:
+    """تبدیل فرمت مارک‌داون به HTML و حذف کامل ایموجی‌های آبی"""
+    # حذف تمام لوزی‌های آبی (کوچک و بزرگ)
+    text = re.sub(r'[🔹🔷]', '', text)
+    # تبدیل **متن** به <b>متن</b>
+    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+    return text.strip()
 
 def build_channel_footer(target: str, source_msg_link: str) -> str:
-    """ساخت فوتر اختصاصی شامل ایموجی‌های پریمیوم، آیدی و لینک منبع"""
+    """ساخت فوتر اختصاصی شامل آیدی و لینک منبع با عبارت isignal.ir"""
     if target == "@ahmadsobhani":
         footer = f'<tg-emoji emoji-id="{EMOJI_ID}">🆔</tg-emoji> {target}'
         if source_msg_link:
-            footer += f'\n<tg-emoji emoji-id="{EMOJI_LINK}">🔗</tg-emoji> <a href="{source_msg_link}">منبع خبر</a>'
+            footer += f'\n<tg-emoji emoji-id="{EMOJI_LINK}">🔗</tg-emoji> <a href="{source_msg_link}">isignal.ir</a>'
         return footer
     else:
-        # برای بقیه کانال‌ها مثل finsoph_news
         return f"{target}"
 
 async def fetch_and_process_messages():
@@ -46,7 +48,7 @@ async def fetch_and_process_messages():
     time_limit = datetime.now(timezone.utc) - timedelta(minutes=18)
     grouped_posts = {}
 
-    print("در حال خواندن پیام‌های کانال مبدأ...")
+    print("در حال بررسی پیام‌های کانال مبدأ...")
     async for message in client.iter_messages(SOURCE_CHANNEL, limit=25):
         if message.date < time_limit:
             break
@@ -62,13 +64,11 @@ async def fetch_and_process_messages():
             grouped_posts[f"single_{message.id}"] = [message]
 
     if not grouped_posts:
-        print("پیام جدیدی در این بازه زمانی یافت نشد.")
+        print("پیام جدیدی در ۱۵ دقیقه اخیر یافت نشد.")
         await client.disconnect()
         return
 
     sorted_groups = sorted(grouped_posts.values(), key=lambda group: min(m.id for m in group))
-
-    # به دست آوردن نام کاربری کانال مبدا برای ساخت لینک پیام
     source_username = SOURCE_CHANNEL.replace("@", "")
 
     for group in sorted_groups:
@@ -92,21 +92,16 @@ async def fetch_and_process_messages():
             print(f"پست {first_id} رد شد (SKIP).")
             continue
 
-        # تبدیل ** به <b>
-        processed_text = markdown_to_html_bold(processed_text)
+        # پاک‌سازی ایموجی‌های آبی و اعمال بولد HTML
+        processed_text = clean_and_format_text(processed_text)
 
-        # ساخت لینک پیام اصلی در مبدأ
         source_msg_link = f"https://t.me/{source_username}/{first_id}"
 
-        # ارسال به کانال‌های مقصد
         for target in TARGET_CHANNELS:
             footer = build_channel_footer(target, source_msg_link)
             
-            # افزودن ایموجی پریمیوم به اول پیام برای کانال ahmadsobhani
-            if target == "@ahmadsobhani":
-                full_caption = f'<tg-emoji emoji-id="{EMOJI_HEADER}">🔹</tg-emoji> {processed_text}\n\n{footer}'
-            else:
-                full_caption = f"{processed_text}\n\n{footer}"
+            # قرار دادن ایموجی سبز در ابتدای تمام پیام‌ها
+            full_caption = f'<tg-emoji emoji-id="{EMOJI_HEADER}">🟢</tg-emoji> {processed_text}\n\n{footer}'
 
             try:
                 media_messages = [m for m in group if m.media]
