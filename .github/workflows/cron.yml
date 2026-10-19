@@ -3,17 +3,20 @@ name: Forward Messages
 on:
   repository_dispatch:
     types: [run-sync]
-  workflow_dispatch: # برای تست دستی
+  workflow_dispatch:
 
 jobs:
   forward:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python
-        uses: setup-python@v5
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Run script
         env:
           API_ID: ${{ secrets.API_ID }}
