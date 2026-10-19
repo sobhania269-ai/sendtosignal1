@@ -25,7 +25,7 @@ def process_text_with_gemini(text: str) -> str:
 
     try:
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.5-flash-lite',
             contents=f"متن خبر جهت بررسی و ویرایش:\n\n{text}",
             config={'system_instruction': SYSTEM_INSTRUCTION}
         )
