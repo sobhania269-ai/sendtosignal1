@@ -16,30 +16,56 @@ SESSION_STRING = os.environ.get("SESSION_STRING")
 SOURCE_CHANNEL = os.environ.get("SOURCE_CHANNEL") or "@chandsanieh_news"
 TARGET_CHANNELS = ["@ahmadsobhani", "@finsoph_news"]
 
-# شناسه‌های ایموجی‌های پریمیوم
-EMOJI_HEADER = "5958629062858514430"  # ایموجی سبز پریمیوم
-EMOJI_ID = "5836782704686798781"      # ایموجی آیدی
-EMOJI_LINK = "5271604874419647061"    # ایموجی پیوند
+# شناسه‌های ایموجی‌های پریمیوم مختص کانال ahmadsobhani
+EMOJI_GREEN = "5958629062858514430"  # ایموجی سبز برای ابتدای خطوط
+EMOJI_ID = "5836782704686798781"     # ایموجی کنار آیدی
+EMOJI_LINK = "5271604874419647061"   # ایموجی کنار isignal.ir
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
-def clean_and_format_text(text: str) -> str:
-    """تبدیل فرمت مارک‌داون به HTML و حذف کامل ایموجی‌های آبی"""
-    # حذف تمام لوزی‌های آبی (کوچک و بزرگ)
-    text = re.sub(r'[🔹🔷]', '', text)
-    # تبدیل **متن** به <b>متن</b>
-    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
-    return text.strip()
+def format_news_text(raw_text: str) -> str:
+    """پاک‌سازی متن، حذف ایموجی‌های نامطلوب، و بولد کردن قطعی جمله اول"""
+    # حذف ایموجی‌های لوزی آبی و کاراکترهای مشابه
+    clean_text = re.sub(r'[🔹🔷]', '', raw_text).strip()
+    
+    # تفکیک خطوط غیرخالی
+    lines = [line.strip() for line in clean_text.split('\n') if line.strip()]
+    if not lines:
+        return ""
 
-def build_channel_footer(target: str, source_msg_link: str) -> str:
-    """ساخت فوتر اختصاصی شامل آیدی و لینک منبع با عبارت isignal.ir"""
+    # اطمینان از بولد بودن سطر اول (تیتر)
+    first_line = lines[0]
+    # اگر قبلا با ** یا <b> احاطه شده بود، ابتدا پاک‌سازی و سپس تگ یکدست <b> اعمال می‌شود
+    first_line = re.sub(r'</?b>', '', first_line)
+    first_line = re.sub(r'\*\*(.*?)\*\*', r'\1', first_line).strip()
+    lines[0] = f"<b>{first_line}</b>"
+
+    # تبدیل ستاره‌های بقیه خطوط به تگ بولد استاندارد
+    for i in range(1, len(lines)):
+        lines[i] = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', lines[i])
+
+    return "\n\n".join(lines)
+
+def prepare_caption_for_target(base_text: str, target: str) -> str:
+    """شخصی‌سازی دقیق متن برای هر کانال به صورت کاملاً مجزا"""
     if target == "@ahmadsobhani":
-        footer = f'<tg-emoji emoji-id="{EMOJI_ID}">🆔</tg-emoji> {target}'
-        if source_msg_link:
-            footer += f'\n<tg-emoji emoji-id="{EMOJI_LINK}">🔗</tg-emoji> <a href="{source_msg_link}">isignal.ir</a>'
-        return footer
+        # اضافه کردن ایموجی سبز در ابتدای تمام پاراگراف‌ها
+        paragraphs = base_text.split('\n\n')
+        formatted_paragraphs = [
+            f'<tg-emoji emoji-id="{EMOJI_GREEN}">🟢</tg-emoji> {p}' for p in paragraphs
+        ]
+        body = '\n\n'.join(formatted_paragraphs)
+        
+        # فوتر اختصاصی: فقط متن isignal.ir بدون هایپرلینک
+        footer = (
+            f'<tg-emoji emoji-id="{EMOJI_ID}">🆔</tg-emoji> {target}\n'
+            f'<tg-emoji emoji-id="{EMOJI_LINK}">🔗</tg-emoji> isignal.ir'
+        )
+        return f"{body}\n\n{footer}"
+    
     else:
-        return f"{target}"
+        # کانال دوم (finsoph_news): ساختار تمیز بدون ایموجی‌های اختصاصی کانال اول
+        return f"{base_text}\n\n{target}"
 
 async def fetch_and_process_messages():
     await client.start()
@@ -48,7 +74,7 @@ async def fetch_and_process_messages():
     time_limit = datetime.now(timezone.utc) - timedelta(minutes=18)
     grouped_posts = {}
 
-    print("در حال بررسی پیام‌های کانال مبدأ...")
+    print("در حال خواندن پیام‌های کانال مبدأ...")
     async for message in client.iter_messages(SOURCE_CHANNEL, limit=25):
         if message.date < time_limit:
             break
@@ -69,7 +95,6 @@ async def fetch_and_process_messages():
         return
 
     sorted_groups = sorted(grouped_posts.values(), key=lambda group: min(m.id for m in group))
-    source_username = SOURCE_CHANNEL.replace("@", "")
 
     for group in sorted_groups:
         text_content = ""
@@ -92,16 +117,14 @@ async def fetch_and_process_messages():
             print(f"پست {first_id} رد شد (SKIP).")
             continue
 
-        # پاک‌سازی ایموجی‌های آبی و اعمال بولد HTML
-        processed_text = clean_and_format_text(processed_text)
+        # اعمال قالب‌بندی و بولد کردن جمله اول
+        base_formatted_text = format_news_text(processed_text)
+        if not base_formatted_text:
+            continue
 
-        source_msg_link = f"https://t.me/{source_username}/{first_id}"
-
+        # ارسال به هر کانال با محتوای کاملاً مجزا
         for target in TARGET_CHANNELS:
-            footer = build_channel_footer(target, source_msg_link)
-            
-            # قرار دادن ایموجی سبز در ابتدای تمام پیام‌ها
-            full_caption = f'<tg-emoji emoji-id="{EMOJI_HEADER}">🟢</tg-emoji> {processed_text}\n\n{footer}'
+            caption = prepare_caption_for_target(base_formatted_text, target)
 
             try:
                 media_messages = [m for m in group if m.media]
@@ -111,7 +134,7 @@ async def fetch_and_process_messages():
                     multi_media = []
 
                     for idx, msg in enumerate(media_messages):
-                        cap = full_caption if idx == 0 else ""
+                        cap = caption if idx == 0 else ""
                         input_media = await client.get_input_media(msg.media)
 
                         multi_media.append(
@@ -132,16 +155,18 @@ async def fetch_and_process_messages():
                 elif len(media_messages) == 1:
                     await client.send_message(
                         target,
-                        full_caption,
+                        caption,
                         file=media_messages[0].media,
-                        parse_mode="html"
+                        parse_mode="html",
+                        link_preview=False
                     )
                     print(f"✅ پست تک‌مدیا {first_id} به {target} ارسال شد.")
                 else:
                     await client.send_message(
                         target,
-                        full_caption,
-                        parse_mode="html"
+                        caption,
+                        parse_mode="html",
+                        link_preview=False
                     )
                     print(f"✅ پست متنی {first_id} به {target} ارسال شد.")
 
