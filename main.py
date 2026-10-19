@@ -1,30 +1,34 @@
 import os
+import re
 import asyncio
 from datetime import datetime, timezone, timedelta
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from gemini_processor import process_text_with_gemini
 
-# تنظیمات و متغیرهای محیطی
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
 SOURCE_CHANNEL = os.environ.get("SOURCE_CHANNEL") or "@chandsanieh_news"
-# کانال مقصد موقت طبق درخواست
-TARGET_CHANNEL = os.environ.get("TARGET_CHANNEL") or "@ahmadsobhani"
+
+# لیست کانال‌های مقصد
+TARGET_CHANNELS = ["@ahmadsobhani", "@finsoph_news"]
+
 PREMIUM_EMOJI_ID = os.environ.get("PREMIUM_EMOJI_ID") or ""
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
+def markdown_to_html_bold(text: str) -> str:
+    """تبدیل خودکار دو ستاره مارک‌داون به تگ‌های HTML جهت بولد شدن قطعی"""
+    # تبدیل **متن** به <b>متن</b>
+    return re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+
 async def fetch_and_process_messages():
     await client.start()
-    print(f"اتصال برقرار شد.\nمبدأ: {SOURCE_CHANNEL} | مقصد: {TARGET_CHANNEL}")
+    print(f"اتصال برقرار شد.\nمبدأ: {SOURCE_CHANNEL}\nمقصدها: {TARGET_CHANNELS}")
 
     time_limit = datetime.now(timezone.utc) - timedelta(minutes=18)
-    
-    # دیکشنری برای دسته‌بندی آلبوم‌ها بر اساس grouped_id
-    # فرمت: {grouped_id: [messages...]} یا {f"single_{id}": [message]}
     grouped_posts = {}
 
     print("در حال بررسی پیام‌های کانال مبدأ...")
@@ -32,7 +36,6 @@ async def fetch_and_process_messages():
         if message.date < time_limit:
             break
         
-        # رد کردن استیکر و پیام‌های سرویسی تلگرام
         if message.sticker or message.action:
             continue
 
@@ -48,11 +51,9 @@ async def fetch_and_process_messages():
         await client.disconnect()
         return
 
-    # مرتب‌سازی پست‌ها از قدیمی به جدید بر اساس شناسه پیام اول گروه
     sorted_groups = sorted(grouped_posts.values(), key=lambda group: min(m.id for m in group))
 
     for group in sorted_groups:
-        # در تلگرام معمولاً اولین یا آخرین قطعه آلبوم حاوی کپشن متنی است
         text_content = ""
         for msg in group:
             caption = msg.text or msg.message
@@ -60,67 +61,63 @@ async def fetch_and_process_messages():
                 text_content = caption.strip()
                 break
 
-        # فیلتر: اگر هیچ متنی وجود نداشت، به جمینای فرستاده نمی‌شود
         if not text_content:
-            first_id = group[0].id
-            print(f"پست شناسه {first_id} (تعداد اسلاید: {len(group)}) بدون کپشن است -> رد شد.")
             continue
 
         first_id = group[0].id
-        print(f"پست شناسه {first_id} دارای کپشن است. ارسال به جمینای...")
+        print(f"ارسال متن پست {first_id} به جمینای...")
 
-        # ارسال متن به جمینای
         processed_text = process_text_with_gemini(text_content)
-        
-        # وقفه ۴ ثانیه‌ای برای عدم برخورد با محدودیت ۱۵ درخواست در دقیقه
         await asyncio.sleep(4)
 
         if processed_text == "SKIP" or not processed_text.strip():
-            print(f"پست {first_id} مرتبط با موضوعات اقتصادی/سیاسی تشخیص داده نشد (SKIP).")
+            print(f"پست {first_id} رد شد (SKIP).")
             continue
 
-        # افزودن ایموجی پریمیوم در صورت تنظیم بودن
-        final_caption = processed_text
-        if PREMIUM_EMOJI_ID:
-            final_caption = f'<tg-emoji emoji-id="{PREMIUM_EMOJI_ID}">🔹</tg-emoji> {processed_text}'
+        # اصلاح فرمت بولد (تبدیل ** به <b>)
+        processed_text = markdown_to_html_bold(processed_text)
 
-        # ارسال به مقصد
-        try:
-            # بررسی آلبوم (چند عکسه/اسلایدی)
-            media_list = [m.media for m in group if m.media]
+        # ارسال به هر دو کانال مقصد
+        for target in TARGET_CHANNELS:
+            # افزودن آیدی همان کانال در انتهای متن
+            caption_with_id = f"{processed_text}\n\n{target}"
 
-            if len(media_list) > 1:
-                # ارسال به عنوان آلبوم اسلایدی
-                print(f"ارسال آلبوم شامل {len(media_list)} مدیا...")
-                await client.send_file(
-                    TARGET_CHANNEL,
-                    file=media_list,
-                    caption=final_caption,
-                    parse_mode="html"
-                )
-            elif len(media_list) == 1:
-                # تک‌مدیا همراه با کپشن
-                await client.send_message(
-                    TARGET_CHANNEL,
-                    final_caption,
-                    file=media_list[0],
-                    parse_mode="html"
-                )
-            else:
-                # پست صرفاً متنی
-                await client.send_message(
-                    TARGET_CHANNEL,
-                    final_caption,
-                    parse_mode="html"
-                )
-            
-            print(f"✅ پست با موفقیت به کانال مقصد ارسال شد.")
+            # افزودن ایموجی پریمیوم (در صورت وجود)
+            if PREMIUM_EMOJI_ID:
+                caption_with_id = f'<tg-emoji emoji-id="{PREMIUM_EMOJI_ID}">🔹</tg-emoji> {caption_with_id}'
 
-        except Exception as e:
-            print(f"❌ خطا در ارسال پست {first_id}: {e}")
+            try:
+                media_list = [m.media for m in group if m.media]
+
+                if len(media_list) > 1:
+                    await client.send_file(
+                        target,
+                        file=media_list,
+                        caption=caption_with_id,
+                        parse_mode="html"
+                    )
+                elif len(media_list) == 1:
+                    await client.send_message(
+                        target,
+                        caption_with_id,
+                        file=media_list[0],
+                        parse_mode="html"
+                    )
+                else:
+                    await client.send_message(
+                        target,
+                        caption_with_id,
+                        parse_mode="html"
+                    )
+                
+                print(f"✅ پست {first_id} به کانال {target} ارسال شد.")
+                await asyncio.sleep(1) # وقفه کوتاه بین ارسال‌ها
+
+            except Exception as e:
+                print(f"❌ خطا در ارسال به {target}: {e}")
 
     await client.disconnect()
-    print("عملیات پایان یافت.")
+    print("عملیات با موفقیت پایان یافت.")
 
 if __name__ == "__main__":
     asyncio.run(fetch_and_process_messages())
