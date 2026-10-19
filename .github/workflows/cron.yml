@@ -1,4 +1,4 @@
-name: Forward Messages
+name: Telegram Message Forwarder
 
 on:
   repository_dispatch:
@@ -10,12 +10,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip' # کش کردن پکیج‌ها برای کاهش چشمگیر زمان اجرا
 
       - name: Install dependencies
         run: |
