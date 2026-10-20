@@ -14,21 +14,21 @@ SESSION_STRING = os.environ.get("SESSION_STRING")
 SOURCE_CHANNEL = os.environ.get("SOURCE_CHANNEL") or "@chandsanieh_news"
 TARGET_CHANNELS = ["@ahmadsobhani", "@finsoph_news"]
 
-# ایموجی‌های پریمیوم
-EMOJI_AHMAD_BULLET = "5958629062858514430"  # ایموجی ابتدای خطوط برای کانال شخصی
+# شناسه‌های ایموجی‌های پریمیوم
+EMOJI_AHMAD_BULLET = "5958629062858514430"  # ایموجی سبز برای کانال شخصی
 EMOJI_ID = "5836782704686798781"            # ایموجی آیدی (مشترک)
 EMOJI_LINK = "5271604874419647061"          # ایموجی پیوند (مشترک)
 EMOJI_FINSOPH_BULLET = "5958661279408200638" # ایموجی ابتدای خطوط فینسوف
 
-# کاراکترهای نامرئی برای کدگذاری آیدی در انتهای پیام (برای چشم انسان کاملاً مخفی است)
-ZW_0 = "\u200b"  # صفر
-ZW_1 = "\u200c"  # یک
-ZW_SEP = "\u200d" # جداکننده
+# کاراکترهای نامرئی برای ثبت مخفیانه شناسه پیام
+ZW_0 = "\u200b"
+ZW_1 = "\u200c"
+ZW_SEP = "\u200d"
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 def encode_id_invisible(msg_id: int) -> str:
-    """کدگذاری شناسه پیام به کاراکترهای کاملاً نامرئی در انتهای پست"""
+    """کدگذاری شناسه پیام به کاراکترهای نامرئی در انتهای پست"""
     binary = bin(msg_id)[2:]
     invisible_str = "".join(ZW_1 if b == "1" else ZW_0 for b in binary)
     return ZW_SEP + invisible_str + ZW_SEP
@@ -65,7 +65,7 @@ def format_news_text(raw_text: str) -> str:
     return "\n\n".join(lines)
 
 def prepare_caption_for_target(base_text: str, target: str, source_msg_id: int) -> str:
-    """شخصی‌سازی متن، فوتر و تزریق آیدی نامرئی برای جلوگیری از تکرار"""
+    """شخصی‌سازی متن، فوتر و لینک کلیک‌خور برای هر کانال به صورت جداگانه"""
     paragraphs = base_text.split('\n\n')
     invisible_tag = encode_id_invisible(source_msg_id)
 
@@ -76,7 +76,7 @@ def prepare_caption_for_target(base_text: str, target: str, source_msg_id: int) 
         body = '\n\n'.join(formatted_paragraphs)
         footer = (
             f'<tg-emoji emoji-id="{EMOJI_ID}">🆔</tg-emoji> {target}\n'
-            f'<tg-emoji emoji-id="{EMOJI_LINK}">🔗</tg-emoji> isignal.ir'
+            f'<tg-emoji emoji-id="{EMOJI_LINK}">🔗</tg-emoji> <a href="https://isignal.ir">isignal.ir</a>'
         )
         return f"{body}\n\n{footer}{invisible_tag}"
 
@@ -88,14 +88,14 @@ def prepare_caption_for_target(base_text: str, target: str, source_msg_id: int) 
         footer = (
             f'<tg-emoji emoji-id="{EMOJI_ID}">🆔</tg-emoji> @finsoph_news\n'
             f'<tg-emoji emoji-id="{EMOJI_ID}">🆔</tg-emoji> @fin_soph\n'
-            f'<tg-emoji emoji-id="{EMOJI_LINK}">🔗</tg-emoji> finsoph.ir'
+            f'<tg-emoji emoji-id="{EMOJI_LINK}">🔗</tg-emoji> <a href="https://finsoph.ir">finsoph.ir</a>'
         )
         return f"{body}\n\n{footer}{invisible_tag}"
 
     return f"{base_text}\n\n{target}{invisible_tag}"
 
 async def get_last_processed_id_from_channel(channel_username: str) -> int:
-    """خواندن آخرین آیدی ارسال‌شده با بررسی کاراکتر نامرئی آخرین پیام‌های کانال"""
+    """خواندن آخرین آیدی ارسال‌شده از پیام‌های کانال مقصد"""
     try:
         async for msg in client.iter_messages(channel_username, limit=10):
             text = msg.text or msg.message or ""
@@ -110,25 +110,21 @@ async def fetch_and_process_messages():
     await client.start()
     print(f"اتصال تلگرام برقرار شد.\nمبدأ: {SOURCE_CHANNEL}\nمقاصد: {TARGET_CHANNELS}")
 
-    # ۱. بازیابی آخرین آیدی پیام فوروارد شده از کانال مقصد
+    # ۱. بازیابی آخرین شناسه پردازش‌شده برای جلوگیری از تکرار
     last_sent_id = await get_last_processed_id_from_channel(TARGET_CHANNELS[0])
-    
-    # دقیقاً ۱۵ دقیقه اخیر (حذف همپوشانی زمان‌ها)
     time_limit = datetime.now(timezone.utc) - timedelta(minutes=15)
     
     if last_sent_id > 0:
-        print(f"🔍 آخرین شناسه پردازش‌شده در کانال: {last_sent_id} (پیام‌های قدیمی‌تر از این رد می‌شوند)")
+        print(f"🔍 آخرین شناسه پردازش‌شده در کانال: {last_sent_id} (پیام‌های قدیمی‌تر رد می‌شوند)")
     else:
-        print("🔍 سابقه قبلی در کانال یافت نشد؛ پیام‌های ۱۵ دقیقه گذشته بررسی می‌شوند.")
+        print("🔍 سابقه قبلی در کانال یافت نشد؛ پیام‌های ۱۵ دقیقه اخیر بررسی می‌شوند.")
 
     grouped_posts = {}
 
     print("در حال بررسی پیام‌های کانال مبدأ...")
     async for message in client.iter_messages(SOURCE_CHANNEL, limit=35):
-        # شرط توقف قطعی: پیام‌های مساوی یا قدیمی‌تر از آخرین آیدی ثبت‌شده
         if last_sent_id > 0 and message.id <= last_sent_id:
             break
-        # در صورت نبود آیدی قبلی، بر اساس زمان ۱۵ دقیقه متوقف می‌شود
         if last_sent_id == 0 and message.date < time_limit:
             break
         
@@ -147,10 +143,10 @@ async def fetch_and_process_messages():
         await client.disconnect()
         return
 
-    # مرتب‌سازی از قدیمی به جدید
+    # مرتب‌سازی پست‌ها از قدیمی به جدید
     sorted_groups = sorted(grouped_posts.values(), key=lambda group: min(m.id for m in group))
 
-    # ۲. آماده‌سازی دسته جمعی برای جمینای
+    # ۲. گردآوری یکجای پست‌ها برای ارسال دسته‌جمعی به هوش مصنوعی
     batch_for_gemini = []
     groups_by_first_id = {}
 
@@ -177,11 +173,11 @@ async def fetch_and_process_messages():
         await client.disconnect()
         return
 
-    # ۳. یک درخواست تکی به جمینای برای تمام پست‌ها
+    # ۳. یک درخواست تکی به جمینای برای همه پست‌ها
     print(f"🚀 ارسال یکجای {len(batch_for_gemini)} پست به جمینای...")
     processed_results = process_batch_with_gemini(batch_for_gemini)
 
-    # ۴. ارسال خروجی‌ها به کانال‌ها
+    # ۴. ارسال پست‌های تایید شده به کانال‌ها
     for first_id, raw_processed_text in processed_results.items():
         if raw_processed_text == "SKIP" or not raw_processed_text.strip():
             print(f"پست شناسه {first_id} رد شد (SKIP).")
