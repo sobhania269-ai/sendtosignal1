@@ -24,20 +24,40 @@ SYSTEM_INSTRUCTION = """
 ۳. امانت‌داری متن:
    - جزئیات، لحن و متن اصلی خبر را بازنویسی نکن. تنها عبارات ممنوعه و زوائد را حذف کن.
    - از اضافه کردن هرگونه تحلیل، پیش‌گفتار، پس‌گفتار یا توضیح خودت جداً خودداری کن.
-۴. اگر کل متن پس از حذف این موارد خالی شد، بنویس: SKIP
+۴. اگر کل متن پس از حذف این موارد خالی شد، بنویس: SKIPقالب پاسخ خروجی:
+یک آرایه JSON شامل اشیایی با دو کلید "id" و "text":
+[
+  {"id": 12345, "text": "<b>تیتر خبر</b>\\n\\nمتن ویرایش‌شده خبر"},
+  {"id": 12346, "text": "SKIP"}
+]
 """
 
-def process_text_with_gemini(text: str) -> str:
-    if not text or not text.strip():
-        return "SKIP"
+def process_batch_with_gemini(posts: list[dict]) -> dict[int, str]:
+    """
+    ارسال یکجای تمام پست‌ها در یک درخواست و دریافت دیکشنری {post_id: processed_text}
+    """
+    if not posts:
+        return {}
+
+    prompt_content = json.dumps(posts, ensure_ascii=False, indent=2)
 
     try:
         response = client.models.generate_content(
-            model='gemini-3.5-flash-lite',
-            contents=f"متن خبر جهت بررسی و ویرایش:\n\n{text}",
-            config={'system_instruction': SYSTEM_INSTRUCTION}
+            model='gemini-3.1-flash-lite',
+            contents=f"لیست پست‌های جدید جهت بررسی و ویرایش:\n\n{prompt_content}",
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_INSTRUCTION,
+                response_mime_type="application/json"
+            )
         )
-        return response.text.strip()
+        
+        parsed_data = json.loads(response.text.strip())
+        results = {}
+        for item in parsed_data:
+            results[int(item["id"])] = item.get("text", "SKIP")
+        return results
+
     except Exception as e:
-        print(f"خطا در ارتباط با جمینای: {e}")
-        return "SKIP"
+        print(f"❌ خطا در پردازش یکجای جمینای: {e}")
+        # در صورت بروز خطای کلی، تمام موارد رد می‌شوند تا خطا رخ ندهد
+        return {p["id"]: "SKIP" for p in posts}
