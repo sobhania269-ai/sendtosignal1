@@ -15,7 +15,7 @@ SOURCE_CHANNEL = os.environ.get("SOURCE_CHANNEL") or "@chandsanieh_news"
 TARGET_CHANNELS = ["@isignal_ir", "@finsoph_news"]
 
 # شناسه‌های ایموجی‌های پریمیوم
-EMOJI_AHMAD_BULLET = "5958629062858514430"  # ایموجی سبز برای کانال شخصی / آی‌سیگنال
+EMOJI_AHMAD_BULLET = "5958629062858514430"  # ایموجی سبز برای کانال آی‌سیگنال
 EMOJI_ID = "5836782704686798781"            # ایموجی آیدی (مشترک)
 EMOJI_LINK = "5271604874419647061"          # ایموجی پیوند (مشترک)
 EMOJI_FINSOPH_BULLET = "5958661279408200638" # ایموجی ابتدای خطوط فینسوف
@@ -46,6 +46,18 @@ def decode_id_invisible(text: str) -> int:
         except ValueError:
             return 0
     return 0
+
+def pre_clean_source_text(raw_text: str) -> str:
+    """حذف عبارات چند ثانیه و امضای مبدأ قبل از ارسال به هوش مصنوعی"""
+    if not raw_text:
+        return ""
+    # حذف عبارات چند ثانیه، چندثانیه، چند ثانیه آنلاین و انواع فواصل
+    cleaned = re.sub(r'چند\s*ثانیه(\s*آنلاین)?', '', raw_text, flags=re.IGNORECASE)
+    # حذف آیدی کانال چندثانیه
+    cleaned = re.sub(r'@chandsanieh_news', '', cleaned, flags=re.IGNORECASE)
+    # پاک‌سازی خطوط خالی اضافه حاصل از حذف
+    lines = [line.strip() for line in cleaned.split('\n') if line.strip()]
+    return "\n\n".join(lines)
 
 def format_news_text(raw_text: str) -> str:
     """پاک‌سازی لوزی‌های آبی، فرمت مارک‌داون و تضمین بولد بودن خط اول"""
@@ -110,7 +122,6 @@ async def fetch_and_process_messages():
     await client.start()
     print(f"اتصال تلگرام برقرار شد.\nمبدأ: {SOURCE_CHANNEL}\nمقاصد: {TARGET_CHANNELS}")
 
-    # ۱. بازیابی آخرین شناسه پردازش‌شده برای جلوگیری از تکرار
     last_sent_id = await get_last_processed_id_from_channel(TARGET_CHANNELS[0])
     time_limit = datetime.now(timezone.utc) - timedelta(minutes=15)
     
@@ -143,10 +154,8 @@ async def fetch_and_process_messages():
         await client.disconnect()
         return
 
-    # مرتب‌سازی پست‌ها از قدیمی به جدید
     sorted_groups = sorted(grouped_posts.values(), key=lambda group: min(m.id for m in group))
 
-    # ۲. گردآوری یکجای پست‌ها برای ارسال دسته‌جمعی به هوش مصنوعی
     batch_for_gemini = []
     groups_by_first_id = {}
 
@@ -163,9 +172,15 @@ async def fetch_and_process_messages():
 
         first_id = min(m.id for m in group)
         groups_by_first_id[first_id] = group
+
+        # پیش‌پاک‌سازی: حذف «چند ثانیه» قبل از اینکه به جمینای برسد
+        cleaned_for_ai = pre_clean_source_text(text_content)
+        if not cleaned_for_ai:
+            continue
+
         batch_for_gemini.append({
             "id": first_id,
-            "text": text_content
+            "text": cleaned_for_ai
         })
 
     if not batch_for_gemini:
@@ -173,13 +188,10 @@ async def fetch_and_process_messages():
         await client.disconnect()
         return
 
-    # ۳. یک درخواست تکی به جمینای برای همه پست‌ها
-    print(f"🚀 ارسال یکجای {len(batch_for_gemini)} پست به جمینای...")
+    print(f"🚀 ارسال یکجای {len(batch_for_gemini)} پست به جمینای (بدون ردپای مبدأ)...")
     processed_results = process_batch_with_gemini(batch_for_gemini)
 
-    # ۴. ارسال خروجی‌های تاییدشده به کانال‌ها
     for first_id, item_data in processed_results.items():
-        # مدیریت خروجی بر اساس ساختار دیکشنری یا رشته
         if isinstance(item_data, dict):
             raw_processed_text = item_data.get("text", "SKIP")
             skip_reason = item_data.get("reason", "").strip()
