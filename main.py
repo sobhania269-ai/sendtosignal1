@@ -15,12 +15,12 @@ SOURCE_CHANNEL = os.environ.get("SOURCE_CHANNEL") or "@chandsanieh_news"
 TARGET_CHANNELS = ["@isignal_ir", "@finsoph_news"]
 
 # شناسه‌های ایموجی‌های پریمیوم
-EMOJI_AHMAD_BULLET = "5958629062858514430"  # ایموجی سبز برای کانال شخصی
+EMOJI_AHMAD_BULLET = "5958629062858514430"  # ایموجی سبز برای کانال شخصی / آی‌سیگنال
 EMOJI_ID = "5836782704686798781"            # ایموجی آیدی (مشترک)
 EMOJI_LINK = "5271604874419647061"          # ایموجی پیوند (مشترک)
 EMOJI_FINSOPH_BULLET = "5958661279408200638" # ایموجی ابتدای خطوط فینسوف
 
-# کاراکترهای نامرئی برای ثبت مخفیانه شناسه پیام
+# کاراکترهای نامرئی برای ثبت مخفیانه شناسه پیام در انتهای پست
 ZW_0 = "\u200b"
 ZW_1 = "\u200c"
 ZW_SEP = "\u200d"
@@ -103,7 +103,7 @@ async def get_last_processed_id_from_channel(channel_username: str) -> int:
             if msg_id > 0:
                 return msg_id
     except Exception as e:
-        print(f"اطلاع: خطا در خواندن آخرین پیام کانال مقصد: {e}")
+        print(f"اطلاع: خطا در خواندن آخرین پیام کانال مقصد ({channel_username}): {e}")
     return 0
 
 async def fetch_and_process_messages():
@@ -177,10 +177,19 @@ async def fetch_and_process_messages():
     print(f"🚀 ارسال یکجای {len(batch_for_gemini)} پست به جمینای...")
     processed_results = process_batch_with_gemini(batch_for_gemini)
 
-    # ۴. ارسال پست‌های تایید شده به کانال‌ها
-    for first_id, raw_processed_text in processed_results.items():
+    # ۴. ارسال خروجی‌های تاییدشده به کانال‌ها
+    for first_id, item_data in processed_results.items():
+        # مدیریت خروجی بر اساس ساختار دیکشنری یا رشته
+        if isinstance(item_data, dict):
+            raw_processed_text = item_data.get("text", "SKIP")
+            skip_reason = item_data.get("reason", "").strip()
+        else:
+            raw_processed_text = str(item_data)
+            skip_reason = ""
+
         if raw_processed_text == "SKIP" or not raw_processed_text.strip():
-            print(f"پست شناسه {first_id} رد شد (SKIP).")
+            reason_msg = f" (علت: {skip_reason})" if skip_reason else ""
+            print(f"⛔ پست شناسه {first_id} رد شد (SKIP){reason_msg}")
             continue
 
         base_formatted_text = format_news_text(raw_processed_text)
