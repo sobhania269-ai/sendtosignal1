@@ -12,7 +12,7 @@ API_HASH = os.environ.get("API_HASH")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
 SOURCE_CHANNEL = os.environ.get("SOURCE_CHANNEL") or "@chandsanieh_news"
-TARGET_CHANNELS = ["@ahmadsobhani", "@finsoph_news"]
+TARGET_CHANNELS = ["@isignal_ir", "@finsoph_news"]
 
 # شناسه‌های ایموجی‌های پریمیوم
 EMOJI_AHMAD_BULLET = "5958629062858514430"  # ایموجی سبز برای کانال شخصی
@@ -69,7 +69,7 @@ def prepare_caption_for_target(base_text: str, target: str, source_msg_id: int) 
     paragraphs = base_text.split('\n\n')
     invisible_tag = encode_id_invisible(source_msg_id)
 
-    if target == "@ahmadsobhani":
+    if target == "@isignal_ir":
         formatted_paragraphs = [
             f'<tg-emoji emoji-id="{EMOJI_AHMAD_BULLET}">🟢</tg-emoji> {p}' for p in paragraphs
         ]
