@@ -4,40 +4,44 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from gemini_processor import process_batch_with_gemini
+from gemini_processor import process_batch_with_gemini, process_batch_translation_with_gemini
 
 # متغیرهای اتصال تلگرام
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
-SOURCE_CHANNEL = os.environ.get("SOURCE_CHANNEL") or "@chandsanieh_news"
-TARGET_CHANNELS = ["@isignal_ir", "@finsoph_news"]
+# کانال‌ها
+SOURCE_CHANNEL_FA = "@chandsanieh_news"
+SOURCES_EN = ["@ForexNewsNavigator_Official", "@cointelegraph"]
 
-# شناسه‌های ایموجی‌های پریمیوم
-EMOJI_AHMAD_BULLET = "5958629062858514430"  # ایموجی سبز برای کانال آی‌سیگنال
+TARGET_CHANNELS_ALL = ["@isignal_ir", "@finsoph_news"]
+TARGET_FINSOPH_ONLY = ["@finsoph_news"]
+
+# ایموجی‌های پریمیوم
+EMOJI_AHMAD_BULLET = "5958629062858514430"  # ایموجی سبز
 EMOJI_ID = "5836782704686798781"            # ایموجی آیدی (مشترک)
 EMOJI_LINK = "5271604874419647061"          # ایموجی پیوند (مشترک)
-EMOJI_FINSOPH_BULLET = "5958661279408200638" # ایموجی ابتدای خطوط فینسوف
+EMOJI_FINSOPH_BULLET = "5958661279408200638" # ایموجی نارنجی فینسوف
 
-# کاراکترهای نامرئی برای ثبت مخفیانه شناسه پیام در انتهای پست
+# کاراکترهای نامرئی برای کدگذاری شناسه پیام
 ZW_0 = "\u200b"
 ZW_1 = "\u200c"
 ZW_SEP = "\u200d"
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
-def encode_id_invisible(msg_id: int) -> str:
-    """کدگذاری شناسه پیام به کاراکترهای نامرئی در انتهای پست"""
+def encode_id_invisible(channel_code: str, msg_id: int) -> str:
+    """کدگذاری شناسه پیام همراه با کد منبع برای ردگیری تفکیک‌شده"""
     binary = bin(msg_id)[2:]
     invisible_str = "".join(ZW_1 if b == "1" else ZW_0 for b in binary)
-    return ZW_SEP + invisible_str + ZW_SEP
+    return f"{ZW_SEP}{channel_code}{invisible_str}{ZW_SEP}"
 
-def decode_id_invisible(text: str) -> int:
-    """استخراج شناسه پیام از کاراکترهای نامرئی انتهای متن"""
+def decode_id_invisible(text: str, channel_code: str) -> int:
+    """استخراج شناسه پیام بر اساس کد منبع"""
     if not text:
         return 0
-    pattern = rf"{ZW_SEP}([{ZW_0}{ZW_1}]+){ZW_SEP}"
+    pattern = rf"{ZW_SEP}{channel_code}([{ZW_0}{ZW_1}]+){ZW_SEP}"
     match = re.search(pattern, text)
     if match:
         binary_str = "".join("1" if c == ZW_1 else "0" for c in match.group(1))
@@ -48,19 +52,17 @@ def decode_id_invisible(text: str) -> int:
     return 0
 
 def pre_clean_source_text(raw_text: str) -> str:
-    """حذف عبارات چند ثانیه و امضای مبدأ قبل از ارسال به هوش مصنوعی"""
+    """حذف نام و لینک کانال چندثانیه از پیام فارسی"""
     if not raw_text:
         return ""
-    # حذف عبارات چند ثانیه، چندثانیه، چند ثانیه آنلاین و انواع فواصل
-    cleaned = re.sub(r'چند\s*ثانیه(\s*آنلاین)?', '', raw_text, flags=re.IGNORECASE)
-    # حذف آیدی کانال چندثانیه
+    cleaned = re.sub(r'چند[\s\u200c]*ثانیه(\s*آنلاین)?', '', raw_text, flags=re.IGNORECASE)
+    cleaned = re.sub(r'https?://t\.me/chandsanieh_news\S*', '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'@chandsanieh_news', '', cleaned, flags=re.IGNORECASE)
-    # پاک‌سازی خطوط خالی اضافه حاصل از حذف
     lines = [line.strip() for line in cleaned.split('\n') if line.strip()]
     return "\n\n".join(lines)
 
 def format_news_text(raw_text: str) -> str:
-    """پاک‌سازی لوزی‌های آبی، فرمت مارک‌داون و تضمین بولد بودن خط اول"""
+    """پاک‌سازی لوزی‌های آبی و بولد کردن خط اول"""
     clean_text = re.sub(r'[🔹🔷]', '', raw_text).strip()
     lines = [line.strip() for line in clean_text.split('\n') if line.strip()]
     if not lines:
@@ -76,10 +78,10 @@ def format_news_text(raw_text: str) -> str:
 
     return "\n\n".join(lines)
 
-def prepare_caption_for_target(base_text: str, target: str, source_msg_id: int) -> str:
-    """شخصی‌سازی متن، فوتر و لینک کلیک‌خور برای هر کانال به صورت جداگانه"""
+def prepare_caption(base_text: str, target: str, channel_code: str, source_msg_id: int) -> str:
+    """شخصی‌سازی ظاهر، فوتر و تگ نامرئی بر اساس کانال مقصد"""
     paragraphs = base_text.split('\n\n')
-    invisible_tag = encode_id_invisible(source_msg_id)
+    invisible_tag = encode_id_invisible(channel_code, source_msg_id)
 
     if target == "@isignal_ir":
         formatted_paragraphs = [
@@ -106,39 +108,38 @@ def prepare_caption_for_target(base_text: str, target: str, source_msg_id: int) 
 
     return f"{base_text}\n\n{target}{invisible_tag}"
 
-async def get_last_processed_id_from_channel(channel_username: str) -> int:
-    """خواندن آخرین آیدی ارسال‌شده از پیام‌های کانال مقصد"""
+async def get_last_processed_id(channel_username: str, channel_code: str) -> int:
+    """خواندن شناسه آخرین پیام پردازش‌شده از کانال مقصد"""
     try:
-        async for msg in client.iter_messages(channel_username, limit=10):
+        async for msg in client.iter_messages(channel_username, limit=15):
             text = msg.text or msg.message or ""
-            msg_id = decode_id_invisible(text)
+            msg_id = decode_id_invisible(text, channel_code)
             if msg_id > 0:
                 return msg_id
     except Exception as e:
-        print(f"اطلاع: خطا در خواندن آخرین پیام کانال مقصد ({channel_username}): {e}")
+        print(f"خطا در خواندن پیام‌های {channel_username}: {e}")
     return 0
 
-async def fetch_and_process_messages():
-    await client.start()
-    print(f"اتصال تلگرام برقرار شد.\nمبدأ: {SOURCE_CHANNEL}\nمقاصد: {TARGET_CHANNELS}")
-
-    last_sent_id = await get_last_processed_id_from_channel(TARGET_CHANNELS[0])
-    time_limit = datetime.now(timezone.utc) - timedelta(minutes=15)
+async def process_channel(source_channel: str, targets: list[str], channel_code: str, is_translation: bool = False):
+    """پردازش یک کانال مبدأ و ارسال به مقاصد تعیین‌شده"""
+    print(f"\n==============================")
+    print(f"📥 شروع بررسی کانال مبدأ: {source_channel}")
     
+    last_sent_id = await get_last_processed_id(targets[0], channel_code)
+    time_limit = datetime.now(timezone.utc) - timedelta(minutes=15)
+
     if last_sent_id > 0:
-        print(f"🔍 آخرین شناسه پردازش‌شده در کانال: {last_sent_id} (پیام‌های قدیمی‌تر رد می‌شوند)")
+        print(f"🔍 آخرین پیام ثبت‌شده از {source_channel}: {last_sent_id}")
     else:
-        print("🔍 سابقه قبلی در کانال یافت نشد؛ پیام‌های ۱۵ دقیقه اخیر بررسی می‌شوند.")
+        print(f"🔍 پیام قبلی یافت نشد؛ پیام‌های ۱۵ دقیقه گذشته بررسی می‌شوند.")
 
     grouped_posts = {}
-
-    print("در حال بررسی پیام‌های کانال مبدأ...")
-    async for message in client.iter_messages(SOURCE_CHANNEL, limit=35):
+    async for message in client.iter_messages(source_channel, limit=30):
         if last_sent_id > 0 and message.id <= last_sent_id:
             break
         if last_sent_id == 0 and message.date < time_limit:
             break
-        
+
         if message.sticker or message.action:
             continue
 
@@ -150,12 +151,10 @@ async def fetch_and_process_messages():
             grouped_posts[f"single_{message.id}"] = [message]
 
     if not grouped_posts:
-        print("هیچ پیام جدیدی برای پردازش یافت نشد.")
-        await client.disconnect()
+        print(f"پیام جدیدی در {source_channel} یافت نشد.")
         return
 
     sorted_groups = sorted(grouped_posts.values(), key=lambda group: min(m.id for m in group))
-
     batch_for_gemini = []
     groups_by_first_id = {}
 
@@ -173,83 +172,85 @@ async def fetch_and_process_messages():
         first_id = min(m.id for m in group)
         groups_by_first_id[first_id] = group
 
-        # پیش‌پاک‌سازی: حذف «چند ثانیه» قبل از اینکه به جمینای برسد
-        cleaned_for_ai = pre_clean_source_text(text_content)
-        if not cleaned_for_ai:
-            continue
+        if not is_translation:
+            text_content = pre_clean_source_text(text_content)
 
-        batch_for_gemini.append({
-            "id": first_id,
-            "text": cleaned_for_ai
-        })
+        if text_content:
+            batch_for_gemini.append({"id": first_id, "text": text_content})
 
     if not batch_for_gemini:
-        print("هیچ پست متنی واجد شرایطی یافت نشد.")
-        await client.disconnect()
         return
 
-    print(f"🚀 ارسال یکجای {len(batch_for_gemini)} پست به جمینای (بدون ردپای مبدأ)...")
-    processed_results = process_batch_with_gemini(batch_for_gemini)
+    print(f"🚀 ارسال {len(batch_for_gemini)} پست از {source_channel} به جمینای ({'ترجمه' if is_translation else 'ویرایش'})...")
+    
+    if is_translation:
+        results = process_batch_translation_with_gemini(batch_for_gemini)
+    else:
+        results = process_batch_with_gemini(batch_for_gemini)
 
-    for first_id, item_data in processed_results.items():
-        if isinstance(item_data, dict):
-            raw_processed_text = item_data.get("text", "SKIP")
-            skip_reason = item_data.get("reason", "").strip()
-        else:
-            raw_processed_text = str(item_data)
-            skip_reason = ""
+    for first_id, item_data in results.items():
+        raw_text = item_data.get("text", "SKIP")
+        skip_reason = item_data.get("reason", "").strip()
 
-        if raw_processed_text == "SKIP" or not raw_processed_text.strip():
+        if raw_text == "SKIP" or not raw_text.strip():
             reason_msg = f" (علت: {skip_reason})" if skip_reason else ""
-            print(f"⛔ پست شناسه {first_id} رد شد (SKIP){reason_msg}")
+            print(f"⛔ پست {first_id} از {source_channel} رد شد{reason_msg}")
             continue
 
-        base_formatted_text = format_news_text(raw_processed_text)
-        if not base_formatted_text:
+        formatted_text = format_news_text(raw_text)
+        if not formatted_text:
             continue
 
         group = groups_by_first_id[first_id]
         media_messages = [m for m in group if m.media]
 
-        for target in TARGET_CHANNELS:
-            caption = prepare_caption_for_target(base_formatted_text, target, first_id)
-
+        for target in targets:
+            caption = prepare_caption(formatted_text, target, channel_code, first_id)
             try:
                 if len(media_messages) > 1:
                     files_to_send = [m.media for m in media_messages]
-                    await client.send_file(
-                        target,
-                        file=files_to_send,
-                        caption=caption,
-                        parse_mode="html"
-                    )
+                    await client.send_file(target, file=files_to_send, caption=caption, parse_mode="html")
                     print(f"✅ آلبوم چندرسانه‌ای {first_id} به {target} ارسال شد.")
-
                 elif len(media_messages) == 1:
-                    await client.send_message(
-                        target,
-                        caption,
-                        file=media_messages[0].media,
-                        parse_mode="html",
-                        link_preview=False
-                    )
+                    await client.send_message(target, caption, file=media_messages[0].media, parse_mode="html", link_preview=False)
                     print(f"✅ پست تک‌مدیا {first_id} به {target} ارسال شد.")
                 else:
-                    await client.send_message(
-                        target,
-                        caption,
-                        parse_mode="html",
-                        link_preview=False
-                    )
+                    await client.send_message(target, caption, parse_mode="html", link_preview=False)
                     print(f"✅ پست متنی {first_id} به {target} ارسال شد.")
-
                 await asyncio.sleep(1)
-
             except Exception as e:
-                print(f"❌ خطا در ارسال پست {first_id} به {target}: {e}")
+                print(f"❌ خطا در ارسال به {target}: {e}")
+
+async def main():
+    await client.start()
+    print("اتصال تلگرام برقرار شد.")
+
+    # ۱. کانال فارسی (ارسال به هر دو کانال: آی‌سیگنال و فینسوف)
+    await process_channel(
+        source_channel=SOURCE_CHANNEL_FA,
+        targets=TARGET_CHANNELS_ALL,
+        channel_code="FA_",
+        is_translation=False
+    )
+
+    # ۲. کانال فارکس انگلیسی (ترجمه و ارسال فقط به فینسوف)
+    await process_channel(
+        source_channel=SOURCES_EN[0],
+        targets=TARGET_FINSOPH_ONLY,
+        channel_code="FX_",
+        is_translation=True
+    )
+
+    # ۳. کانال کریپتو انگلیسی (ترجمه و ارسال فقط به فینسوف)
+    await process_channel(
+        source_channel=SOURCES_EN[1],
+        targets=TARGET_FINSOPH_ONLY,
+        channel_code="CT_",
+        is_translation=True
+    )
 
     await client.disconnect()
-    print("پایان عملیات.")
+    print("\n🏁 تمام عملیات با موفقیت به پایان رسید.")
 
 if __name__ == "__main__":
-    asyncio.run(fetch_and_process_messages())
+    asyncio.run(main())
