@@ -5,6 +5,9 @@ from google.genai import types
 
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
+# پرامپت اخبار فارسی (کانال چندثانیه)
+
+
 SYSTEM_INSTRUCTION = """
 تو یک ویراستار و فیلترکننده حرفه‌ای اخبار تلگرام هستی. متنی که دریافت می‌کنی متن خام یک خبر است. وظیفه داری موضوع آن را ارزیابی و در صورت تایید، آن را پاک‌سازی کنی.
 
@@ -39,26 +42,43 @@ SYSTEM_INSTRUCTION = """
   {"id": 12346, "text": "SKIP", "reason": "موضوع ورزشی"}
 ]
 """
+# پرامپت اخبار انگلیسی (Forex و Cointelegraph)
+SYSTEM_INSTRUCTION_EN_TRANSLATE = """
+تو یک مترجم و ویراستار تخصصی اخبار اقتصادی، فارکس و کریپتو برای کانال تلگرام تحلیلی هستی.
+وظیفه داری اخبار دریافتی را ارزیابی، فیلتر و به فارسی شیوا و حرفه‌ای ترجمه کنی.
 
-def process_batch_with_gemini(posts: list[dict]) -> dict[int, dict]:
-    """
-    ارسال یکجای پست‌ها به جمینای و دریافت دیکشنری خروجی
-    """
+قوانین فیلتر (SKIP):
+۱. فقط اخبار مهم و تاثیرگذار اقتصادی، فارکس، رمزارزها، بیت‌کوین، بانک‌های مرکزی، سیاست پولی، و بازارهای جهانی را تایید کن.
+۲. تبلیغات ایردراپ‌ها، توکن‌های کلاهبرداری، پامپ و دامپ‌های بی‌ارزش و اخبار زرد کریپتویی را رد کن (SKIP).
+
+قوانین ترجمه و نگارش فارسی:
+۱. تیتر و متن را به زبان فارسی روان، دقیق و بدون ترجمه تحت‌اللفظی ترجمه کن.
+۲. اصطلاحات رایج بازار (مثل هاوینگ، نرخ بهره، فدرال رزرو، تورم، اتریوم، بیت‌کوین) را اصولی بنویس.
+۳. خط اول (تیتر) حتماً داخل تگ <b>تیتر</b> قرار گیرد. از ** استفاده نکن.
+۴. تمام لینک‌ها، منبع‌های اصلی (مثل Cointelegraph)، آیدی‌ها و ایموجی‌های اضافی را حذف کن.
+۵. از خودت تحلیل، مقدمه یا پی‌نوشت اضافه نکن.
+
+قالب خروجی:
+[
+  {"id": 12345, "text": "<b>تیتر ترجمه‌شده</b>\\n\\nمتن ترجمه شده", "reason": ""},
+  {"id": 12346, "text": "SKIP", "reason": "تبلیغاتی یا شت‌کوین"}
+]
+"""
+
+def _call_gemini(posts: list[dict], system_prompt: str) -> dict[int, dict]:
     if not posts:
         return {}
 
     prompt_content = json.dumps(posts, ensure_ascii=False, indent=2)
-
     try:
         response = client.models.generate_content(
             model='gemini-3.5-flash-lite',
-            contents=f"لیست پست‌های جدید جهت بررسی و ویرایش:\n\n{prompt_content}",
+            contents=f"پست‌ها جهت بررسی:\n\n{prompt_content}",
             config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_INSTRUCTION,
+                system_instruction=system_prompt,
                 response_mime_type="application/json"
             )
         )
-        
         raw_text = response.text.strip()
         if raw_text.startswith("```"):
             raw_text = raw_text.split("```")[1]
@@ -74,7 +94,14 @@ def process_batch_with_gemini(posts: list[dict]) -> dict[int, dict]:
                 "reason": item.get("reason", "")
             }
         return results
-
     except Exception as e:
-        print(f"❌ خطا در پردازش یکجای جمینای: {e}")
-        return {p["id"]: {"text": "SKIP", "reason": f"خطای ارتباطی: {e}"} for p in posts}
+        print(f"❌ خطا در جمینای: {e}")
+        return {p["id"]: {"text": "SKIP", "reason": str(e)} for p in posts}
+
+def process_batch_with_gemini(posts: list[dict]) -> dict[int, dict]:
+    """پردازش و ویرایش اخبار فارسی"""
+    return _call_gemini(posts, SYSTEM_INSTRUCTION_FA)
+
+def process_batch_translation_with_gemini(posts: list[dict]) -> dict[int, dict]:
+    """فیلتر و ترجمه روان اخبار انگلیسی فارکس و کریپتو"""
+    return _call_gemini(posts, SYSTEM_INSTRUCTION_EN_TRANSLATE)
